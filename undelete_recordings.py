@@ -1,68 +1,91 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: UTF-8 -*-
 #---------------------------
-# Name: delete_recordings.py
+# Name: undelete_recordings.py
 # Python Script
-# Author: Raymond Wagner
+# Author: Raymond Wagner, Patrick C. McGinty
 # Purpose
 #   This python script provides a command line tool to search and
-#   delete recordings.
-#---------------------------
+#   undelete all recordings.
+#--------------------------
 
-from MythTV import MythDB, MythLog
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+from __future__ import unicode_literals
+
+from MythTV import MythDB, MythLog, MythDBError
 import sys
 
+
 def list_recs(recs):
-    print 'Below is a list of matching recordings:'
+    print('Below is a list of matching recordings:')
     recs = dict(enumerate(recs.values()))
-    for i,rec in recs.items():
-        print '  %d. [%s] %s - %s' % \
-                (i, rec.starttime.isoformat(), rec.title, rec.subtitle)
+    for i, rec in recs.items():
+        print('  %d. [%s] %s - %s' %
+              (i, rec.starttime.isoformat(), rec.title, rec.subtitle))
     return recs
 
 param = {}
 
-temp = list(sys.argv[1:])
-while len(temp):
-    a = temp.pop(0)
-    if a[:2] == '--':
-        a = a[2:]
-        if '=' in a:
-            a = a.split('=',1)
-            param[a[0]] = a[1]
+# Valid Search Arguments:
+#   title autoexpire watched closecaptioned generic hostname category subtitle
+#   commflagged storagegroup partnumber cast transcoded duplicate chanid stars
+#   category_type parttotal livetv hdtv subtitled starttime recgroup airdate
+#   seriesid basename manualid progstart playgroup stereo showtype
+#   syndicatedepisodenumber programid
+#
+# Runtime options:
+#   --force             non-interactive, perform action on all results
+#   --verbose=LEVEL     enable verbose loggin in MythTV API
+arg = ''
+arg_list = list(sys.argv[1:])
+while len(arg_list):
+    arg = arg_list.pop(0)
+    if arg[:2] == '--':
+        arg = arg[2:]
+        if '=' in arg:
+            arg = arg.split('=', 1)
+            param[arg[0]] = arg[1]
         else:
-            if len(temp):
-                b = temp.pop(0)
-                if (b[:2] == '--') or (b[:1] == '-'):
-                    temp.insert(0,b)
-                    param[a] = ''
+            if len(arg_list):
+                arg_val = arg_list.pop(0)
+                if (arg_val[:2] == '--') or (arg_val[:1] == '-'):
+                    arg_list.insert(0, arg_val)
+                    param[arg] = ''
                 else:
-                    param[a] = b
+                    param[arg] = arg_val
             else:
-                param[a] = ''
+                param[arg] = ''
 
-MythLog._setlevel(param.get('verbose','none'))
+MythLog._setlevel(param.get('verbose', 'none'))
 try:
     param.pop('verbose')
-except: pass
+except:
+    pass
 
 force = False
 if 'force' in param:
     force = True
     param.pop('force')
 
-if len(a) == 0:
-    sys.exit(0)
-
-recs = list(MythDB().searchRecorded(**param))
-if len(recs) == 0:
-    print 'no matching recordings found'
-    sys.exit(0)
-if force:
-    for rec in recs:
-        #print 'deleting ',str(rec)
-        rec.delete()
-    sys.exit(0)
+try:
+    recs = list(MythDB().searchRecorded(**param))
+    if len(recs) == 0:
+        print('no matching recordings found')
+        sys.exit(0)
+    if force:
+        for rec in recs:
+            print('undeleting ', str(rec))
+            # rec.delete()
+        sys.exit(0)
+except MythDBError as e:
+    if 'DB_CREDENTIALS' == e.ename:
+        print("ERROR: Could not find MythDB host:port OR correct login "
+              "credentials!")
+        sys.exit(-1)
+    else:
+        raise
 
 recs = dict(enumerate(recs))
 
@@ -71,22 +94,23 @@ try:
     while len(recs) > 0:
         inp = raw_input("> ")
         if inp == 'help':
-            print "'ok' or 'yes' to confirm, and delete all"
-            print "     recordings in the current list."
-            print "'list' to reprint the list."
-            print "<int> to remove that recording from the list."
-        elif inp in ('yes','ok'):
+            print("'ok' or 'yes' to confirm, and undelete all\n"
+                  "     recordings in the current list.\n"
+                  "'list' to reprint the list.\n"
+                  "<int> to remove the recording from the list, and leave\n"
+                  "unchanged.")
+        elif inp in ('yes', 'ok'):
             for rec in recs.values():
-                #print 'deleting ',str(rec)
-                rec.delete()
+                print('undeleting ', str(rec))
+                # rec.delete()
             break
-        elif inp in ('list',''):
+        elif inp in ('list', ''):
             recs = list_recs(recs)
         else:
             try:
                 recs.pop(int(inp))
             except:
-                print 'invalid input'
+                print('invalid input')
 except KeyboardInterrupt:
     pass
 except EOFError:
