@@ -26,7 +26,14 @@ def list_recs(recs):
               (i, rec.starttime.isoformat(), rec.title, rec.subtitle))
     return recs
 
-param = {}
+# Undeletes a recording. In the usual case only the recgroup and autoexpire
+# value need to be modified. Setting the deletepending value is done in event
+# that the backend expired the recording.
+def undelete(rec):
+    print('undeleting ', str(rec))
+    rec.update(recgroup="Default",autoexpire=0,deletepending=0)
+
+param = { 'recgroup':'Deleted' }
 
 # Valid Search Arguments:
 #   title autoexpire watched closecaptioned generic hostname category subtitle
@@ -76,8 +83,7 @@ try:
         sys.exit(0)
     if force:
         for rec in recs:
-            print('undeleting ', str(rec))
-            # rec.delete()
+            undelete(rec)
         sys.exit(0)
 except MythDBError as e:
     if 'DB_CREDENTIALS' == e.ename:
@@ -93,18 +99,15 @@ try:
     list_recs(recs)
     while len(recs) > 0:
         inp = raw_input("> ")
-        if inp == 'help':
-            print("'ok' or 'yes' to confirm, and undelete all\n"
-                  "     recordings in the current list.\n"
-                  "'list' to reprint the list.\n"
-                  "<int> to remove the recording from the list, and leave\n"
-                  "unchanged.")
+        if inp in ('help', ''):
+            print("'ok' or 'yes' to confirm, and undelete all recordings in the current list.\n"
+                  "'list'        to reprint the list.\n"
+                  "<int>         to remove the recording from the list, and leave unchanged.")
         elif inp in ('yes', 'ok'):
             for rec in recs.values():
-                print('undeleting ', str(rec))
-                # rec.delete()
+                undelete(rec)
             break
-        elif inp in ('list', ''):
+        elif inp in ('list',):
             recs = list_recs(recs)
         else:
             try:
