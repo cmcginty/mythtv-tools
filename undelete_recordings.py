@@ -32,9 +32,11 @@ TIMESTAMP_FIELD_INDEX = 4
 DictData._trans[TIMESTAMP_FIELD_INDEX] = int
 DictData._inv_trans[TIMESTAMP_FIELD_INDEX] = str
 
+
 def rec_toString(r):
-    fulltitle = ' - '.join([r.title,r.subtitle]) if r.subtitle else r.title
+    fulltitle = ' - '.join([r.title, r.subtitle]) if r.subtitle else r.title
     return str('[%s] %s' % (r.starttime, fulltitle))
+
 
 def list_recs(recs):
     print('Below is a list of matching recordings:')
@@ -47,9 +49,8 @@ def list_recs(recs):
 def undelete(rec):
     """Undeletes a recording.
 
-    In the usual case only the recgroup and autoexpire value need to be modified.
-    Setting the deletepending value is done in event that the backend expired the
-    recording.
+    Send an UNDELETE_RECORDING protocol message to the backend and test for
+    failure.
     """
     print('undelete ' + rec_toString(rec))
     cmd = BACKEND_SEP.join(['UNDELETE_RECORDING', rec.toString()])
