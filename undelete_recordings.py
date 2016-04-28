@@ -14,9 +14,23 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 
-from MythTV import MythDB, MythLog, MythDBError
-import sys
+from MythTV import MythBE, MythBEError, MythLog, MythDBError
+from MythTV.static import BACKEND_SEP
 from optparse import OptionParser
+import re
+import sys
+
+# MythBE backend instance
+BACKEND = None
+
+# MythTV datetime's (dt.py) custom tzinfo (posixtzinfo) has a bug that can
+# corrupt the recording's timestmap in the client. We don't really care about
+# local date format, therefore the bug can be fixed by setting all timestamps to
+# integers and bypassing and conversion bugs.
+from MythTV.altdict import DictData
+TIMESTAMP_FIELD_INDEX = 4
+DictData._trans[TIMESTAMP_FIELD_INDEX] = int
+DictData._inv_trans[TIMESTAMP_FIELD_INDEX] = str
 
 
 def list_recs(recs):
@@ -24,17 +38,22 @@ def list_recs(recs):
     recs = dict(enumerate(recs.values()))
     for i, rec in recs.items():
         print('  %d. [%s] %s - %s' %
-              (i, rec.starttime.isoformat(), rec.title, rec.subtitle))
+              (i, rec.starttime, rec.title, rec.subtitle))
     return recs
 
 
 def undelete(rec):
     """Undeletes a recording.
+
     In the usual case only the recgroup and autoexpire value need to be modified.
     Setting the deletepending value is done in event that the backend expired the
-    recording."""
-    print('undeleting ', str(rec))
-    rec.update(recgroup="Default", autoexpire=0, deletepending=0)
+    recording.
+    """
+    print('undelete [%d] %s - %s' % (rec.starttime, rec.title, rec.subtitle))
+    cmd = BACKEND_SEP.join(['UNDELETE_RECORDING', rec.toString()])
+    res = BACKEND.backendCommand(cmd)
+    if int(res) != 0:
+        raise MythBEError("undelete failed")
 
 
 parser = OptionParser(usage="usage: %prog [options]")
@@ -48,15 +67,20 @@ parser.add_option("--no-livetv", action="store_true", default=False,
                   help="Ignore all recordings in LiveTV group.")
 
 opts, args = parser.parse_args()
-MythLog._setlevel( 'unknown' if opts.verbose else 'err')
+MythLog._setlevel('unknown' if opts.verbose else 'err')
 
 param = {'recgroup': 'Deleted', 'title': opts.title, }
 
 try:
-    recs = list(MythDB().searchRecorded(**param))
-    # FIXME: LiveTV playgroups are immediately removed from backend
+    BACKEND = MythBE()
+    recs = [r for r in list(BACKEND.getRecordings())
+            if r.recgroup == 'Deleted']
+    if opts.title:
+        recs = [r for r in recs if re.findall(
+            opts.title, r.title, re.IGNORECASE)]
     if opts.no_livetv:
-        filter(lambda r,: r.playgroup != 'LiveTV', recs)
+        # FIXME: LiveTV playgroups are immediately removed from backend
+        recs = [r for r in recs if r.playgroup != 'LiveTV']
     if len(recs) == 0:
         print('no matching recordings found')
         sys.exit(0)
