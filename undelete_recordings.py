@@ -60,11 +60,11 @@ def undelete(rec):
 
 parser = OptionParser(usage="usage: %prog [options]")
 parser.add_option("--verbose", action="store_true", default=False,
-                  help="Enable verbose output of MythTV API.")
+                  help="enable verbose output of MythTV API")
 parser.add_option('-f', "--force", action="store_true", default=False,
-                  help="Non-interactive mode, answer 'yes' to all questions.")
+                  help="non-interactive mode, answer 'yes' to all questions")
 parser.add_option('-t', "--title", action="store", type="string",
-                  help="Limit recordings that match title.")
+                  help="limit recordings that match title")
 
 opts, args = parser.parse_args()
 MythLog._setlevel('unknown' if opts.verbose else 'err')
