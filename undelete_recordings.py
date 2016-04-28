@@ -32,13 +32,15 @@ TIMESTAMP_FIELD_INDEX = 4
 DictData._trans[TIMESTAMP_FIELD_INDEX] = int
 DictData._inv_trans[TIMESTAMP_FIELD_INDEX] = str
 
+def rec_toString(r):
+    fulltitle = ' - '.join([r.title,r.subtitle]) if r.subtitle else r.title
+    return str('[%s] %s' % (r.starttime, fulltitle))
 
 def list_recs(recs):
     print('Below is a list of matching recordings:')
     recs = dict(enumerate(recs.values()))
     for i, rec in recs.items():
-        print('  %d. [%s] %s - %s' %
-              (i, rec.starttime, rec.title, rec.subtitle))
+        print('  %d. %s' % (i, rec_toString(rec)))
     return recs
 
 
@@ -49,7 +51,7 @@ def undelete(rec):
     Setting the deletepending value is done in event that the backend expired the
     recording.
     """
-    print('undelete [%d] %s - %s' % (rec.starttime, rec.title, rec.subtitle))
+    print('undelete ' + rec_toString(rec))
     cmd = BACKEND_SEP.join(['UNDELETE_RECORDING', rec.toString()])
     res = BACKEND.backendCommand(cmd)
     if int(res) != 0:
@@ -63,8 +65,6 @@ parser.add_option('-f', "--force", action="store_true", default=False,
                   help="Non-interactive mode, answer 'yes' to all questions.")
 parser.add_option('-t', "--title", action="store", type="string",
                   help="Limit recordings that match title.")
-parser.add_option("--no-livetv", action="store_true", default=False,
-                  help="Ignore all recordings in LiveTV group.")
 
 opts, args = parser.parse_args()
 MythLog._setlevel('unknown' if opts.verbose else 'err')
@@ -78,9 +78,6 @@ try:
     if opts.title:
         recs = [r for r in recs if re.findall(
             opts.title, r.title, re.IGNORECASE)]
-    if opts.no_livetv:
-        # FIXME: LiveTV playgroups are immediately removed from backend
-        recs = [r for r in recs if r.playgroup != 'LiveTV']
     if len(recs) == 0:
         print('no matching recordings found')
         sys.exit(0)
