@@ -1,7 +1,7 @@
 PYTHONFILES := $(wildcard *.py)
 
 PYLINT_OPTS=--reports=n --disable=I
-PEP8_OPTS=--max-line-length=99
+PEP8_OPTS=--max-line-length=100
 
 all: pep8 pylint
 
