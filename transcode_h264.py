@@ -19,16 +19,9 @@ import shutil
 import sys
 import tempfile
 
-from MythTV import (Job, Recorded, System, MythDB, findfile, MythFileError, MythError, MythLog)
-from MythTV.altdict import DictData
+import MythTV
 
-# MythTV datetime's (dt.py) custom tzinfo (posixtzinfo) has a bug that can
-# corrupt the recording's timestmap in the client. We don't really care about
-# local date format, therefore the bug can be fixed by setting all timestamps to
-# integers and bypassing and conversion bugs.
-TIMESTAMP_FIELD_INDEX = 4
-DictData._trans[TIMESTAMP_FIELD_INDEX] = int      # pylint:disable=protected-access
-DictData._inv_trans[TIMESTAMP_FIELD_INDEX] = str  # pylint:disable=protected-access
+import mythutils
 
 # Remove any commercial skip points that were previously detected from the source media.
 FLUSH_COMMSKIP = True
@@ -40,11 +33,6 @@ BUILD_SEEKTABLE = True
 # quality level.
 RF_QUALITY = 23
 
-def rec_to_string(rec):
-    """Return string value of recording r"""
-    fulltitle = ' - '.join(
-        [rec.title, rec.subtitle]) if rec.subtitle else rec.title
-    return str('[%s] %s' % (rec.starttime, fulltitle))
 
 def handbrake(db, fsrc, fdst, debug):
     """Interface to configuration HandBrakeCLI command options."""
@@ -59,25 +47,25 @@ def handbrake(db, fsrc, fdst, debug):
                                             #                  faster, fast, medium, slow, slower]
         '--x264-tune film',                 # image tuning (none, film, animation, ...)
         '--x264-profile high',              # encoder profile, most devices support 'high' or better
-        '--h264-level 4.1'                  # profile level, most support 4.1 or better
+        '--h264-level 4.1',                 # profile level, most support 4.1 or better
     ]
     OPTS_PICTURE = [
         '--maxHeight=720',      # set max height
         '--modulus=2',          # make resolution divisible by 2
-        '--loose-anamorphic'    # good default, allows resizing and ignores non-anamorphic
+        '--loose-anamorphic',   # good default, allows resizing and ignores non-anamorphic
                                 # video, if video is anamorphic it should play correctly
     ]
     OPTS_FILTER = [
         '--decomb',     # remove interlacing (safe for all video)
-        '--detelecine'  # remove telecining (safe for all video)
+        '--detelecine', # remove telecining (safe for all video)
     ]
     OPTS_AUDIO = [
-        '--audio 1'         # select 1st audio track (add more "1,2" if you want other
+        '--audio 1',        # select 1st audio track (add more "1,2" if you want other
                             # language options
-        '--aencoder faac'   # use fAAC encoder (very good quality)
-        '-ab 160'           # bitrate of encoding in kbps
-        '--mixdown dpl2'    # set downmix option to Dolby ProLogic II
-        '--arate auto'      # set audio rate to automatic
+        '--aencoder faac',  # use fAAC encoder (very good quality)
+        '-ab 160',          # bitrate of encoding in kbps
+        '--mixdown dpl2',   # set downmix option to Dolby ProLogic II
+        '--arate auto',     # set audio rate to automatic
     ]
     OPTS_SUBTITLE = [
         '--native-language english',    # the default language
@@ -91,9 +79,9 @@ def handbrake(db, fsrc, fdst, debug):
     OPTS_OUTPUT = [
         '--format mp4', # set output container to MP4
         '--large-file', # allow large files >4GB (should never hit this anyway)
-        '--output'      # the destination file to write
+        '--output',     # the destination file to write
     ]
-    task = System(path=HB_COMMAND, db=db)
+    task = MythTV.System(path=HB_COMMAND, db=db)
     task.append(*OPTS_GENERAL)
     task.append(*OPTS_VIDEO)
     task.append(*OPTS_PICTURE)
@@ -104,7 +92,6 @@ def handbrake(db, fsrc, fdst, debug):
     task.append(fsrc)
     task.append(*OPTS_OUTPUT)
     task.append(fdst)
-    task.append('--stop-at duration:5')
     if debug:
         print(task.path)
         return task.command('2>&1')
@@ -117,30 +104,18 @@ class Transcode(object):
     Perform a transcode operation on a specified MythTV recording.
 
     The recording is specified by either the JOBID or combination of CHANID and STARTTIME values.
-    When complete, the original recording will be replaced with the new transcoded file.
+    The MythTV API supports many different formats of starttime. When complete, the original
+    recording will be replaced with the new transcoded file.
     """
-    db = MythDB()  # pylint:disable=invalid-name
+    db = MythTV.MythDB()  # pylint:disable=invalid-name
 
-    def __init__(self, jobid=None, chanid=None, starttime=None, debug=False, **kwargs):
-        self.jobid = jobid
-        self.chanid = chanid
-        self.starttime = starttime
+    def __init__(self, jobid=None, chanid=None, starttime=None, debug=False):
+        self.job = MythTV.Job(self.jobid, db=self.db) if jobid else None
+        if self.job:
+            self.rec = MythTV.Recorded((job.chanid, job.startitme), db=self.db)
+        else:
+            self.rec = MythTV.Recorded((chanid, starttime), db=self.db)
         self.debug = debug
-        self.job = self._init_job()
-        self.rec = self._init_recording()
-        self.kwargs = kwargs
-
-    def _init_job(self):
-        job = None
-        if self.jobid:
-            job = Job(self.jobid, db=self.db)
-            # ensure chanid and starttime are set
-            self.chanid = job.chanid
-            self.starttime = job.starttime
-        return job
-
-    def _init_recording(self):
-        return Recorded((self.chanid, self.starttime), db=self.db)
 
     def _job_update(self, status, comment):
         if self.debug: print(comment)
@@ -152,17 +127,12 @@ class Transcode(object):
         self.rm_cutlist(file_src)
         self._transcode(file_src, file_dst)
         self._flush_commercial_skips()
-        # FIXME: enable after testing
-        # self._finalize(file_src)
+        self._finalize(file_src)
         self._rebuild_seek_table()
         self._job_update(272, 'Transcode Completed')
 
     def _get_rec_file_paths(self):
-        storage = findfile('/' + self.rec.basename, self.rec.storagegroup, db=self.db)
-        if not storage:
-            raise RuntimeError('Local access to recording not found.')
-
-        fsrc = os.path.join(storage.dirname, self.rec.basename)
+        fsrc = mythutils.recording_file_path(self.db, self.rec)
         fdst = fsrc.rsplit('.', 1)[0] + '.mp4'
         return (fsrc, fdst)
 
@@ -175,16 +145,16 @@ class Transcode(object):
         if self.rec.cutlist == 1:
             self._job_update(4, 'Removing Cutlist')
             ftmp = tempfile.mkstemp(dir=os.path.dirname(fdst))
-            task = System(path='mythtranscode', db=self.db)
-            task.append('--chanid', '"{}"'.format(self.chanid))
-            task.append('--starttime' '"{}"'.format(self.starttime))
+            task = MythTV.System(path='mythtranscode', db=self.db)
+            task.append('--chanid', self.rec.chanid),
+            task.append('--starttime', self.rec.starttime.mythformat())
             task.append('--mpeg2')
             task.append('--honorcutlist')
             task.append('-o', '"{}"'.format(ftmp))
-            if self.debug: print(self.task.path)
+            if self.debug: print(task.path)
             try:
                 output = task.command('2> /dev/null')
-            except MythError as e:
+            except MythTV.MythError as e:
                 self._job_update(304, 'Removing Cutlist failed')
                 raise RuntimeError('Command failed with output:\n' + e.stderr)
 
@@ -193,15 +163,15 @@ class Transcode(object):
             shutil.move(ftmp, fdst)
 
     def _transcode(self, fsrc, fdst):
-        self._job_update(4, 'Transcoding "{}" to mp4'.format(rec_to_string(self.rec))
+        self._job_update(4, 'Transcoding {} to mp4'.format(mythutils.recording_name(self.rec)))
         stdout = None
         try:
             stdout = handbrake(self.db, fsrc, fdst, debug=self.debug)
-        except MythError as e:
+        except MythTV.MythError as e:
             self._job_update(304, 'Transcoding to mp4 failed!')
             raise RuntimeError('Command failed with output:\n' + e.stderr)
-        except MythFileError as e:
-            self._job_update(304, 'Transcoding to mp4 failed')
+        except MythTV.MythFileError as e:
+            self._job_update(304, 'Transcoding to mp4 failed!')
             raise RuntimeError('{}: {}'.format(stdout, e.message))
 
         self.rec.transcoded = 1
@@ -219,28 +189,23 @@ class Transcode(object):
     def _finalize(self, fsrc):
         """Update the recording DB entry and remove original."""
         # delete the old *.png files
+        assert '' != fsrc
         for filename in glob('%s*.png' % fsrc):
             os.remove(filename)
         self.rec.seek.clean()
         self.rec.update()  # save recording metadata to DB
-        os.remove(fsrc)  # safe to remove original rec
+        os.remove(fsrc)  # safe to remove original recording
 
     def _rebuild_seek_table(self):
         self._job_update(4, 'Rebuilding seektable')
         if BUILD_SEEKTABLE:
-            task = System(path='mythcommflag')
-            task.append('--chanid', self.chanid)
-            task.append('--starttime', self.starttime)
+            task = MythTV.System(path='mythcommflag')
+            task.append('--chanid', self.rec.chanid)
+            task.append('--starttime', self.rec.starttime.mythformat())
             task.append('--rebuild')
-            if self.debug: print(self.task.path)
+            if self.debug: print(task.path)
             task.command('2> /dev/null')
 
-    @staticmethod
-    def _time_as_arg(time):
-        # reformat 'time' string for use with mythtranscode/ffmpeg/mythcommflag
-        arg = str(time.utcisoformat().replace(u':', '').replace(u' ', '').replace(u'T', '')
-                  .replace('-', ''))
-        return arg
 
 
 def main():
@@ -250,7 +215,10 @@ def main():
     parser.add_option(
         '--chanid', action='store', type='int', help='Use chanid for manual operation')
     parser.add_option(
-        '--starttime', action='store', type='int', help='Use starttime for manual operation')
+        '--starttime',
+        action='store',
+        type='int',
+        help='Use generic start time (unix/formatted/etc.) of recording.')
     parser.add_option('-v', '--verbose', action='store', type='string', help='Verbosity level')
     parser.add_option('-d', '--debug', action='store_true', help='Enable debug output')
 
@@ -258,9 +226,9 @@ def main():
 
     if opts.verbose:
         if opts.verbose == 'help':
-            print(MythLog.helptext)
+            print(MythTV.MythLog.helptext)
             sys.exit(0)
-        MythLog._setlevel(opts.verbose)  # pylint:disable=protected-access
+        MythTV.MythLog._setlevel(opts.verbose)  # pylint:disable=protected-access
     del opts.verbose
 
     if len(args) == 1:
