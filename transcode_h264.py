@@ -20,6 +20,15 @@ import sys
 import tempfile
 
 from MythTV import (Job, Recorded, System, MythDB, findfile, MythFileError, MythError, MythLog)
+from MythTV.altdict import DictData
+
+# MythTV datetime's (dt.py) custom tzinfo (posixtzinfo) has a bug that can
+# corrupt the recording's timestmap in the client. We don't really care about
+# local date format, therefore the bug can be fixed by setting all timestamps to
+# integers and bypassing and conversion bugs.
+TIMESTAMP_FIELD_INDEX = 4
+DictData._trans[TIMESTAMP_FIELD_INDEX] = int      # pylint:disable=protected-access
+DictData._inv_trans[TIMESTAMP_FIELD_INDEX] = str  # pylint:disable=protected-access
 
 # Remove any commercial skip points that were previously detected from the source media.
 FLUSH_COMMSKIP = True
@@ -31,6 +40,11 @@ BUILD_SEEKTABLE = True
 # quality level.
 RF_QUALITY = 23
 
+def rec_to_string(rec):
+    """Return string value of recording r"""
+    fulltitle = ' - '.join(
+        [rec.title, rec.subtitle]) if rec.subtitle else rec.title
+    return str('[%s] %s' % (rec.starttime, fulltitle))
 
 def handbrake(db, fsrc, fdst, debug):
     """Interface to configuration HandBrakeCLI command options."""
@@ -48,7 +62,7 @@ def handbrake(db, fsrc, fdst, debug):
         '--h264-level 4.1'                  # profile level, most support 4.1 or better
     ]
     OPTS_PICTURE = [
-        '--maxHeight=720'       # set max height
+        '--maxHeight=720',      # set max height
         '--modulus=2',          # make resolution divisible by 2
         '--loose-anamorphic'    # good default, allows resizing and ignores non-anamorphic
                                 # video, if video is anamorphic it should play correctly
@@ -90,7 +104,7 @@ def handbrake(db, fsrc, fdst, debug):
     task.append(fsrc)
     task.append(*OPTS_OUTPUT)
     task.append(fdst)
-    task.append('--stop-at duration:15')
+    task.append('--stop-at duration:5')
     if debug:
         print(task.path)
         return task.command('2>&1')
@@ -129,8 +143,8 @@ class Transcode(object):
         return Recorded((self.chanid, self.starttime), db=self.db)
 
     def _job_update(self, status, comment):
-        if self.job:
-            self.job.update({'status': status, 'comment': comment})
+        if self.debug: print(comment)
+        if self.job: self.job.update({'status': status, 'comment': comment})
 
     def run(self):
         """Transcode a recording given a jobid or chanid and starttime."""
@@ -179,7 +193,7 @@ class Transcode(object):
             shutil.move(ftmp, fdst)
 
     def _transcode(self, fsrc, fdst):
-        self._job_update(4, 'Transcoding to mp4')
+        self._job_update(4, 'Transcoding "{}" to mp4'.format(rec_to_string(self.rec))
         stdout = None
         try:
             stdout = handbrake(self.db, fsrc, fdst, debug=self.debug)
@@ -218,6 +232,7 @@ class Transcode(object):
             task.append('--chanid', self.chanid)
             task.append('--starttime', self.starttime)
             task.append('--rebuild')
+            if self.debug: print(self.task.path)
             task.command('2> /dev/null')
 
     @staticmethod
