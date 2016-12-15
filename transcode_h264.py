@@ -29,13 +29,13 @@ BUILD_SEEKTABLE = True
 
 # Set the actual encoder "RF" quality (e.g. 10 to 30). This has the biggest impact on file size and
 # quality level.
-RF_QUALITY = 22
+RF_QUALITY = 23
 
 
-class HandBrake(object):
+def handbrake(db, fsrc, fdst, debug):
     """Interface to configuration HandBrakeCLI command options."""
-    HB_COMMAND = 'HandBrakeCLI'
 
+    HB_COMMAND = 'HandBrakeCLI'
     # fixed options for the transcoder command
     OPTS_GENERAL = ['--verbose']
     OPTS_VIDEO = [
@@ -48,6 +48,7 @@ class HandBrake(object):
         '--h264-level 4.1'                  # profile level, most support 4.1 or better
     ]
     OPTS_PICTURE = [
+        '--maxHeight=720'       # set max height
         '--modulus=2',          # make resolution divisible by 2
         '--loose-anamorphic'    # good default, allows resizing and ignores non-anamorphic
                                 # video, if video is anamorphic it should play correctly
@@ -60,8 +61,8 @@ class HandBrake(object):
         '--audio 1'         # select 1st audio track (add more "1,2" if you want other
                             # language options
         '--aencoder faac'   # use fAAC encoder (very good quality)
-        '-B 160'            # bitrate of encoding in kbps
-        '-6 dpl2'           # set downmix option to Dolby ProLogic II
+        '-ab 160'           # bitrate of encoding in kbps
+        '--mixdown dpl2'    # set downmix option to Dolby ProLogic II
         '--arate auto'      # set audio rate to automatic
     ]
     OPTS_SUBTITLE = [
@@ -74,40 +75,27 @@ class HandBrake(object):
     ]
     OPTS_INPUT = ['--input']  # command to set the source media
     OPTS_OUTPUT = [
-        '-f mp4',       # set output container to MP4
-        '-4',           # allow large files >4GB (should never hit this anyway)
+        '--format mp4', # set output container to MP4
+        '--large-file', # allow large files >4GB (should never hit this anyway)
         '--output'      # the destination file to write
     ]
-    STATIC_OPTS = (
-        OPTS_GENERAL + OPTS_VIDEO + OPTS_PICTURE + OPTS_FILTER + OPTS_AUDIO + OPTS_SUBTITLE)
-
-    def __init__(self, db, fsrc, fdst, debug, **_):
-        self.task = System(path=self.HB_COMMAND, db=db)
-        self.fsrc = fsrc
-        self.fdst = fdst
-        self.debug = debug
-        self._run()
-
-    @property
-    def _height(self):
-        """Return option string to set the desired video height."""
-        return '--maxHeight=720'
-
-    @property
-    def _input(self):
-        return ' '.join(self.OPTS_INPUT + [self.fsrc])
-
-    @property
-    def _output(self):
-        return ' '.join(self.OPTS_OUTPUT + [self.fdst])
-
-    def _run(self):
-        """Run the HandBrake command."""
-        # join all of the args into a single list
-        hb_args = self.STATIC_OPTS + [self._height, self._input, self._output]
-        output = self.task(*hb_args)
-        if self.debug:
-            print(output)
+    task = System(path=HB_COMMAND, db=db)
+    task.append(*OPTS_GENERAL)
+    task.append(*OPTS_VIDEO)
+    task.append(*OPTS_PICTURE)
+    task.append(*OPTS_FILTER)
+    task.append(*OPTS_AUDIO)
+    task.append(*OPTS_SUBTITLE)
+    task.append(*OPTS_INPUT)
+    task.append(fsrc)
+    task.append(*OPTS_OUTPUT)
+    task.append(fdst)
+    task.append('--stop-at duration:15')
+    if debug:
+        print(task.path)
+        return task.command('2>&1')
+    else:
+        return task.command('>/dev/null 2>&1')
 
 
 class Transcode(object):
@@ -174,29 +162,34 @@ class Transcode(object):
             self._job_update(4, 'Removing Cutlist')
             ftmp = tempfile.mkstemp(dir=os.path.dirname(fdst))
             task = System(path='mythtranscode', db=self.db)
+            task.append('--chanid', '"{}"'.format(self.chanid))
+            task.append('--starttime' '"{}"'.format(self.starttime))
+            task.append('--mpeg2')
+            task.append('--honorcutlist')
+            task.append('-o', '"{}"'.format(ftmp))
+            if self.debug: print(self.task.path)
             try:
-                output = task('--chanid "{}"'.format(self.chanid),
-                              '--starttime "{}"'.format(self._time_as_arg(self.starttime)),
-                              '--mpeg2', '--honorcutlist', '-o "{}"'.format(ftmp), '2> /dev/null')
-                if self.debug:
-                    print(output)
+                output = task.command('2> /dev/null')
             except MythError as e:
                 self._job_update(304, 'Removing Cutlist failed')
                 raise RuntimeError('Command failed with output:\n' + e.stderr)
+
+            if self.debug: print(output)
             self.rec.cutlist = 0
             shutil.move(ftmp, fdst)
 
     def _transcode(self, fsrc, fdst):
         self._job_update(4, 'Transcoding to mp4')
-        handbrk = None
+        stdout = None
         try:
-            handbrk = HandBrake(self.db, fsrc, fdst, debug=self.debug, **self.kwargs)
+            stdout = handbrake(self.db, fsrc, fdst, debug=self.debug)
         except MythError as e:
             self._job_update(304, 'Transcoding to mp4 failed!')
             raise RuntimeError('Command failed with output:\n' + e.stderr)
         except MythFileError as e:
             self._job_update(304, 'Transcoding to mp4 failed')
-            raise RuntimeError('{}: {}'.format(handbrk.HB_COMMAND, e.message))
+            raise RuntimeError('{}: {}'.format(stdout, e.message))
+
         self.rec.transcoded = 1
         self.rec.filesize = os.path.getsize(fdst)
         self.rec.basename = os.path.basename(fdst)
@@ -222,9 +215,10 @@ class Transcode(object):
         self._job_update(4, 'Rebuilding seektable')
         if BUILD_SEEKTABLE:
             task = System(path='mythcommflag')
-            task.command('--chanid {}'.format(self.chanid),
-                         '--starttime {}'.format(self._time_as_arg(self.starttime)), '--rebuild',
-                         '2> /dev/null')
+            task.append('--chanid', self.chanid)
+            task.append('--starttime', self.starttime)
+            task.append('--rebuild')
+            task.command('2> /dev/null')
 
     @staticmethod
     def _time_as_arg(time):
