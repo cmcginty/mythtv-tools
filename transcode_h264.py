@@ -121,6 +121,8 @@ def run_transcode_workflow():
     recording will be replaced with the new transcoded file.
     """
     file_src, file_dst = get_rec_file_paths(RECORDING)
+    if file_src == file_dst:
+        raise ValueError('Source and destination file are the saem: {}'.format(file_src))
     rm_cutlist(file_src)
     transcode(file_src, file_dst)
     flush_commercial_skips()
