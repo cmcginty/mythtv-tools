@@ -22,6 +22,7 @@ import tempfile
 import MythTV
 
 import mythutils
+from mythutils import JobStatus
 
 # Remove any commercial skip points that were previously detected from the source media.
 FLUSH_COMMSKIP = True
@@ -129,7 +130,7 @@ class Transcode(object):
         self._flush_commercial_skips()
         self._finalize(file_src)
         self._rebuild_seek_table()
-        self._job_update(272, 'Transcode Completed')
+        self._job_update(JobStatus.FINISHED, 'Transcode Completed')
 
     def _get_rec_file_paths(self):
         fsrc = mythutils.recording_file_path(self.db, self.rec)
@@ -143,7 +144,7 @@ class Transcode(object):
         In the event there is no cutlist on the file, no changes are made.
         """
         if self.rec.cutlist == 1:
-            self._job_update(4, 'Removing Cutlist')
+            self._job_update(JobStatus.RUNNING, 'Removing Cutlist')
             ftmp = tempfile.mkstemp(dir=os.path.dirname(fdst))
             task = MythTV.System(path='mythtranscode', db=self.db)
             task.append('--chanid', self.rec.chanid),
@@ -155,7 +156,7 @@ class Transcode(object):
             try:
                 output = task.command('2> /dev/null')
             except MythTV.MythError as e:
-                self._job_update(304, 'Removing Cutlist failed')
+                self._job_update(JobStatus.ERRORED, 'Removing Cutlist failed')
                 raise RuntimeError('Command failed with output:\n' + e.stderr)
 
             if self.debug: print(output)
@@ -163,15 +164,15 @@ class Transcode(object):
             shutil.move(ftmp, fdst)
 
     def _transcode(self, fsrc, fdst):
-        self._job_update(4, 'Transcoding {} to mp4'.format(mythutils.recording_name(self.rec)))
+        self._job_update(JobStatus.RUNNING, 'Transcoding {} to mp4'.format(mythutils.recording_name(self.rec)))
         stdout = None
         try:
             stdout = handbrake(self.db, fsrc, fdst, debug=self.debug)
         except MythTV.MythError as e:
-            self._job_update(304, 'Transcoding to mp4 failed!')
+            self._job_update(JobStatus.ERRORED, 'Transcoding to mp4 failed!')
             raise RuntimeError('Command failed with output:\n' + e.stderr)
         except MythTV.MythFileError as e:
-            self._job_update(304, 'Transcoding to mp4 failed!')
+            self._job_update(JobStatus.ERRORED, 'Transcoding to mp4 failed!')
             raise RuntimeError('{}: {}'.format(stdout, e.message))
 
         self.rec.transcoded = 1
@@ -197,7 +198,7 @@ class Transcode(object):
         os.remove(fsrc)  # safe to remove original recording
 
     def _rebuild_seek_table(self):
-        self._job_update(4, 'Rebuilding seektable')
+        self._job_update(JobStatus.RUNNING, 'Rebuilding seektable')
         if BUILD_SEEKTABLE:
             task = MythTV.System(path='mythcommflag')
             task.append('--chanid', self.rec.chanid)
