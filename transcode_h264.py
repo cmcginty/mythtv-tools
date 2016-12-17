@@ -50,7 +50,7 @@ NULL_STDIO_OPT = '1>/dev/null'
 
 
 def main():
-    global DB, JOB, RECORDING
+    global DB, JOB, RECORDING  # pylint:disable=global-statement
     opts = parse_options()
     init_logging(opts.debug)
     DB = MythTV.MythDB()  # pylint:disable=invalid-name
@@ -244,6 +244,10 @@ def handbrake(fsrc, fdst):
 
 
 def flush_commercial_skips():
+    """
+    Remove commercial skip markings the DB. This is useful if the transcoding step is going to
+    physically remove the commercials from the video stream.
+    """
     if FLUSH_COMMSKIP:
         for index, mark in reversed(list(enumerate(RECORDING.markup))):
             if mark.type in (RECORDING.markup.MARK_COMM_START, RECORDING.markup.MARK_COMM_END):
@@ -264,6 +268,9 @@ def finalize_result(fsrc):
 
 
 def rebuild_seek_table():
+    """
+    Generate a new seek table for the encoding. This likely helps MythTV seek the video faster.
+    """
     job_update(JobStatus.RUNNING, 'Rebuilding seektable')
     if BUILD_SEEKTABLE:
         task = MythTV.System(path='mythcommflag')
@@ -275,9 +282,9 @@ def rebuild_seek_table():
 
 
 def job_update(status, comment):
+    """Update the JOB status, if JOBID is provided as script parameter."""
     logging.debug(comment)
-    if JOB:
-        JOB.update({'status': status, 'comment': comment})
+    if JOB: JOB.update({'status': status, 'comment': comment})
 
 
 if __name__ == '__main__':

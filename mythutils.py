@@ -8,7 +8,7 @@ import MythTV
 from MythTV.altdict import DictData
 
 
-class JobStatus(object):
+class JobStatus(object):  # pylint:disable=too-few-public-methods
     """MythTV Job status values."""
     UNKNOWN = 0x000
     QUEUED = 0x001
@@ -33,7 +33,7 @@ def patch_mythtv_time_api():
     timestmap in the client. We don't really care about local date format, therefore the bug can be
     fixed by setting all timestamps to integers and bypassing and conversion bugs.
     """
-    TIMESTAMP_FIELD_INDEX = 4
+    TIMESTAMP_FIELD_INDEX = 4                         # pylint:disable=invalid-name
     DictData._trans[TIMESTAMP_FIELD_INDEX] = int      # pylint:disable=protected-access
     DictData._inv_trans[TIMESTAMP_FIELD_INDEX] = str  # pylint:disable=protected-access
 
