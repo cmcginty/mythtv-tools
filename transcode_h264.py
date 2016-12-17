@@ -57,26 +57,28 @@ def main():
     JOB = get_mythtv_job(opts.jobid)
     RECORDING = get_mythtv_recording(JOB, opts.chanid, opts.starttime)
     run_transcode_workflow()
+    job_update(JobStatus.FINISHED, 'Transcode Completed')
 
 
 def parse_options():
     """Parse options and run Transcode class."""
     parser = argparse.ArgumentParser()
-    parser.add_argument('JOBID', type='int', help='Number assigned by MythTV when queuing a job')
     parser.add_argument(
-        '--chanid', type='int', help='Use chanid for manual operation')
+        'jobid', nargs='?', type=int, help='Number assigned by MythTV when queuing a job')
+    parser.add_argument(
+        '--chanid', type=int, help='Use chanid for manual operation')
     parser.add_argument(
         '--starttime',
-        type='int',
+        type=int,
         help='Use generic start time (unix/formatted/etc.) of recording.')
     parser.add_argument(
         '-v',
         '--verbose',
-        type='string',
+        type=str,
         help='Verbosity level (level "help" to see available levels)')
     parser.add_argument('-d', '--debug', action='store_true', help='Enable debug output')
     opts = parser.parse_args()
-    if not (opts.jobid or (opts.chanid and opts.startime)):
+    if not (opts.jobid or (opts.chanid and opts.starttime)):
         opts.print_help()
         raise ValueError('Missing JOBID argument, or --chanid and --starttime.')
 
@@ -122,13 +124,13 @@ def run_transcode_workflow():
     """
     file_src, file_dst = get_rec_file_paths(RECORDING)
     if file_src == file_dst:
-        raise ValueError('Source and destination file are the saem: {}'.format(file_src))
+        raise ValueError('Source and destination file are the same: {}\n'
+                         'Was the recording transcoded already?'.format(file_src))
     rm_cutlist(file_src)
     transcode(file_src, file_dst)
     flush_commercial_skips()
     finalize_result(file_src)
     rebuild_seek_table()
-    job_update(JobStatus.FINISHED, 'Transcode Completed')
 
 
 def get_rec_file_paths(rec):
@@ -185,7 +187,7 @@ def handbrake(fsrc, fdst):
     """Configure and run HandBrakeCLI command."""
     HB_COMMAND = 'HandBrakeCLI'
     # fixed options for the transcoder command
-    OPTS_GENERAL = ['--verbose']
+    OPTS_GENERAL = []
     OPTS_VIDEO = [
         '--encoder x264',                   # h.264 encoding
         '--quality ' + str(RF_QUALITY),     # mid-quality, lower is better (18-30 is normal)
@@ -224,7 +226,6 @@ def handbrake(fsrc, fdst):
     OPTS_INPUT = ['--input']  # command to set the source media
     OPTS_OUTPUT = [
         '--format mp4',     # set output container to MP4
-        '--large-file',     # allow large files >4GB (should never hit this anyway)
         '--output',         # the destination file to write
     ]
     task = MythTV.System(path=HB_COMMAND, db=DB)
