@@ -158,7 +158,7 @@ def rm_cutlist(fdst):
             output = task.command(NULL_STDIO_OPT)
         except MythTV.MythError as e:
             job_update(JobStatus.ERRORED, 'Removing Cutlist failed')
-            raise RuntimeError('mythtranscode failed with error:\n' + e.stderr)
+            raise RuntimeError('mythtranscode failed with error: {}\n{}'.format(e.ecode,output))
         logging.debug(output)
         RECORDING.cutlist = 0
         shutil.move(ftmp, fdst)
@@ -173,10 +173,7 @@ def transcode(fsrc, fdst):
         stdout = handbrake(fsrc, fdst)
     except MythTV.MythError as e:
         job_update(JobStatus.ERRORED, 'Transcoding to mp4 failed!')
-        raise RuntimeError('Command failed with output:\n' + e.stderr)
-    except MythTV.MythFileError as e:
-        job_update(JobStatus.ERRORED, 'Transcoding to mp4 failed!')
-        raise RuntimeError('{}: {}'.format(stdout, e.message))
+        raise RuntimeError('Handbrake failed with error: {}\n{}'.format(e.ecode,e.args[0]))
 
     RECORDING.transcoded = 1
     RECORDING.filesize = os.path.getsize(fdst)
