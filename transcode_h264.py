@@ -44,6 +44,9 @@ DB = None
 # MythTV recording instance
 RECORDING = None
 
+# Debug output of handbrake command
+HANDBRAKE_LOG = '/var/log/mythtv/handbrake.log'
+
 # shell option to disable COMMAND output
 NULL_OUTPUT_OPT = '>/dev/null 2>&1'
 NULL_STDIO_OPT = '1>/dev/null'
@@ -181,9 +184,12 @@ def transcode(fsrc, fdst):
 
 def handbrake(fsrc, fdst):
     """Configure and run HandBrakeCLI command."""
+    # make sure the log file is writable
+    fh = open(HANDBRAKE_LOG, 'w+')
+    fh.close()
     HB_COMMAND = 'HandBrakeCLI'
     # static options for handbrake command-line encoder
-    OPTS_GENERAL = []
+    OPTS_GENERAL = ['--verbose']
     OPTS_VIDEO = [
         '--encoder x264',                   # h.264 encoding
         '--quality ' + str(RF_QUALITY),     # mid-quality, lower is better (18-30 is normal)
@@ -235,7 +241,7 @@ def handbrake(fsrc, fdst):
     task.append(fsrc)
     task.append(*OPTS_OUTPUT)
     task.append(fdst)
-    task.append('2>>/var/log/mythtv/handbrake.log')
+    task.append('2>>' + HANDBRAKE_LOG)
     logging.debug(task.path)
     return task.command(NULL_STDIO_OPT)
 
