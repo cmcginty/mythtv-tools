@@ -185,7 +185,7 @@ def transcode(fsrc, fdst):
 def handbrake(fsrc, fdst):
     """Configure and run HandBrakeCLI command."""
     # make sure the log file is writable
-    fh = open(HANDBRAKE_LOG, 'w+')
+    fh = open(HANDBRAKE_LOG, 'a')
     fh.close()
     HB_COMMAND = 'HandBrakeCLI'
     # static options for handbrake command-line encoder
