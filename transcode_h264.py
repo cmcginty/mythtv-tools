@@ -295,5 +295,5 @@ if __name__ == '__main__':
         main()
         sys.exit(0)
     except (RuntimeError, ValueError, IOError) as e:
-        logging.error(e.message)
+        logging.error(e)
         sys.exit(1)
