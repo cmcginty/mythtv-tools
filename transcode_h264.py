@@ -182,7 +182,7 @@ def transcode(fsrc, fdst):
 def handbrake(fsrc, fdst):
     """Configure and run HandBrakeCLI command."""
     HB_COMMAND = 'HandBrakeCLI'
-    # fixed options for the transcoder command
+    # static options for handbrake command-line encoder
     OPTS_GENERAL = []
     OPTS_VIDEO = [
         '--encoder x264',                   # h.264 encoding
@@ -235,8 +235,9 @@ def handbrake(fsrc, fdst):
     task.append(fsrc)
     task.append(*OPTS_OUTPUT)
     task.append(fdst)
+    task.append('2>>/var/log/mythtv/handbrake.log')
     logging.debug(task.path)
-    return task.command(NULL_OUTPUT_OPT)
+    return task.command(NULL_STDIO_OPT)
 
 
 def flush_commercial_skips():
