@@ -213,7 +213,7 @@ def handbrake(fsrc, fdst):
         '--audio 1',        # select 1st audio track (add more "1,2" if you want other
                             # language options
         '--aencoder faac',  # use fAAC encoder (very good quality)
-        '-ab 160',          # bitrate of encoding in kbps
+        '--ab 160',         # bitrate of encoding in kbps
         '--mixdown dpl2',   # set downmix option to Dolby ProLogic II
         '--arate auto',     # set audio rate to automatic
     ]
