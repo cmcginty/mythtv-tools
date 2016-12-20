@@ -115,7 +115,7 @@ def get_mythtv_recording(job=None, chanid=None, starttime=None):
     The MythTV API supports many different formats of STARTTIME.
     """
     if job:
-        return MythTV.Recorded((job.chanid, job.startitme), db=DB)
+        return MythTV.Recorded((job.chanid, job.starttime), db=DB)
     else:
         return MythTV.Recorded((chanid, starttime), db=DB)
 
