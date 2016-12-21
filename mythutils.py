@@ -25,6 +25,7 @@ class JobStatus(object):  # pylint:disable=too-few-public-methods
     ABORTED = 0x120
     ERRORED = 0x130
     CANCELLED = 0x140
+    ANY_ERROR = (ERRORING, ABORTING, ABORTING, ERRORED, CANCELLED)
 
 
 def patch_mythtv_time_api():

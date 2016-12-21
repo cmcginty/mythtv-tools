@@ -83,11 +83,13 @@ def parse_options():
     opts = parser.parse_args()
     if not (opts.jobid or (opts.chanid and opts.starttime)):
         opts.print_help()
-        raise ValueError('Missing JOBID argument, or --chanid and --starttime.')
+        log.error('Missing JOBID argument, or --chanid and --starttime.')
+        sys.exit(1)
 
     if opts.jobid and (opts.chanid or opts.starttime):
         opts.print_help()
-        raise ValueError('JOBID can not be combined with other options.')
+        log.error('JOBID can not be combined with other options.')
+        sys.exit(1)
 
     if opts.verbose:
         if opts.verbose == 'help':
@@ -129,15 +131,26 @@ def run_transcode_workflow():
     Perform a transcode operation on a specified MythTV recording.  When complete, the original
     recording will be replaced with the new transcoded file.
     """
+    ok = check_recording_state(RECORDING)
+    if not ok:
+        sys.exit(1)
     file_src, file_dst = get_rec_file_paths(RECORDING)
-    if file_src == file_dst:
-        raise ValueError('Source and destination file are the same: {}\n'
-                         'Was the recording transcoded already?'.format(file_src))
     rm_cutlist(file_src)
     transcode(file_src, file_dst)
     flush_commercial_skips()
     finalize_result(file_src)
     rebuild_seek_table()
+
+
+def check_recording_state(rec):
+    ok = True
+    if rec.recgroup.lower() == 'deleted':
+        job_update(JobStatus.CANCELLED, 'Ignoring recording marked for delete.')
+        ok = False
+    elif rec.transcoded:
+        job_update(JobStatus.CANCELLED, 'Ignoring previously transcoded recording.')
+        ok = False
+    return ok
 
 
 def get_rec_file_paths(rec):
@@ -163,10 +176,10 @@ def rm_cutlist(fdst):
         logging.debug(task.path)
         try:
             output = task.command(NULL_STDIO_OPT)
+            logging.debug(output)
         except MythTV.MythError as e:
             job_update(JobStatus.ERRORED, 'Removing Cutlist failed')
             raise RuntimeError('mythtranscode failed with error: {}'.format(e))
-        logging.debug(output)
         RECORDING.cutlist = 0
         shutil.move(ftmp, fdst)
 
@@ -244,7 +257,7 @@ def handbrake(fsrc, fdst):
     task.append(fdst)
     task.append('2>>' + TRANSCODE_LOG)
     logging.debug(task.path)
-    return task.command(NULL_STDIO_OPT)
+    task.command(NULL_STDIO_OPT)
 
 
 def flush_commercial_skips():
@@ -282,12 +295,16 @@ def rebuild_seek_table():
         task.append('--starttime', RECORDING.starttime.mythformat())
         task.append('--rebuild')
         logging.debug(task.path)
-        task.command(NULL_STDIO_OPT)
+        output = task.command(NULL_STDIO_OPT)
+        logging.debug(output)
 
 
 def job_update(status, comment):
     """Update the JOB status, if JOBID is provided as script parameter."""
-    logging.info(comment)
+    if status in JobStatus.ANY_ERROR:
+        logging.error(comment)
+    else:
+        logging.info(comment)
     if JOB: JOB.update({'status': status, 'comment': comment})
 
 
