@@ -45,7 +45,7 @@ DB = None
 RECORDING = None
 
 # Debug output of handbrake command
-HANDBRAKE_LOG = '/var/log/mythtv/handbrake.log'
+TRANSCODE_LOG = '/var/log/mythtv/handbrake.log'
 
 # shell option to disable COMMAND output
 NULL_OUTPUT_OPT = '>/dev/null 2>&1'
@@ -98,11 +98,15 @@ def parse_options():
 
 
 def init_logging(debug=False):
-    FORMAT = "%(levelname)s: %(message)s"
-    level = logging.INFO
+    # file logger
+    FORMAT = '[%(asctime)s] %(levelname)8s: %(message)s'
+    logging.basicConfig(filename=TRANSCODE_LOG, format=FORMAT, level=logging.DEBUG)
+    # console logger
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    logging.getLogger('').addHandler(console)
     if debug:
-        level = logging.DEBUG
-    logging.basicConfig(format=FORMAT, level=level)
+        console.setLevel(logging.DEBUG)
 
 
 def get_mythtv_job(jobid=None):
@@ -161,7 +165,7 @@ def rm_cutlist(fdst):
             output = task.command(NULL_STDIO_OPT)
         except MythTV.MythError as e:
             job_update(JobStatus.ERRORED, 'Removing Cutlist failed')
-            raise RuntimeError('mythtranscode failed with error: {}\n{}'.format(e.ecode, output))
+            raise RuntimeError('mythtranscode failed with error: {}'.format(e))
         logging.debug(output)
         RECORDING.cutlist = 0
         shutil.move(ftmp, fdst)
@@ -175,7 +179,7 @@ def transcode(fsrc, fdst):
         handbrake(fsrc, fdst)
     except MythTV.MythError as e:
         job_update(JobStatus.ERRORED, 'Transcoding to mp4 failed!')
-        raise RuntimeError('Handbrake failed with error: {}\n{}'.format(e.ecode, e.args[0]))
+        raise RuntimeError('Handbrake failed with error: {}'.format(e))
 
     RECORDING.transcoded = 1
     RECORDING.filesize = os.path.getsize(fdst)
@@ -184,9 +188,6 @@ def transcode(fsrc, fdst):
 
 def handbrake(fsrc, fdst):
     """Configure and run HandBrakeCLI command."""
-    # make sure the log file is writable
-    fh = open(HANDBRAKE_LOG, 'a')
-    fh.close()
     HB_COMMAND = 'HandBrakeCLI'
     # static options for handbrake command-line encoder
     OPTS_GENERAL = ['--verbose']
@@ -241,7 +242,7 @@ def handbrake(fsrc, fdst):
     task.append(fsrc)
     task.append(*OPTS_OUTPUT)
     task.append(fdst)
-    task.append('2>>' + HANDBRAKE_LOG)
+    task.append('2>>' + TRANSCODE_LOG)
     logging.debug(task.path)
     return task.command(NULL_STDIO_OPT)
 
@@ -281,12 +282,12 @@ def rebuild_seek_table():
         task.append('--starttime', RECORDING.starttime.mythformat())
         task.append('--rebuild')
         logging.debug(task.path)
-        task.command(NULL_OUTPUT_OPT)
+        task.command(NULL_STDIO_OPT)
 
 
 def job_update(status, comment):
     """Update the JOB status, if JOBID is provided as script parameter."""
-    logging.debug(comment)
+    logging.info(comment)
     if JOB: JOB.update({'status': status, 'comment': comment})
 
 
@@ -294,6 +295,6 @@ if __name__ == '__main__':
     try:
         main()
         sys.exit(0)
-    except (RuntimeError, ValueError, IOError) as e:
-        logging.error(e)
+    except Exception as e:
+        logging.exception(e)
         sys.exit(1)
