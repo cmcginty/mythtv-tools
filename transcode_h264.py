@@ -94,7 +94,7 @@ def parse_options():
     if opts.verbose:
         if opts.verbose == 'help':
             print(MythTV.MythLog.helptext)
-            sys.exit(0)
+            sys.exit()
         MythTV.MythLog._setlevel(opts.verbose)  # pylint:disable=protected-access
     return opts
 
@@ -131,9 +131,7 @@ def run_transcode_workflow():
     Perform a transcode operation on a specified MythTV recording.  When complete, the original
     recording will be replaced with the new transcoded file.
     """
-    ok = check_recording_state(RECORDING)
-    if not ok:
-        sys.exit(1)
+    verify_recording_or_exit(RECORDING)
     file_src, file_dst = get_rec_file_paths(RECORDING)
     rm_cutlist(file_src)
     transcode(file_src, file_dst)
@@ -142,15 +140,13 @@ def run_transcode_workflow():
     rebuild_seek_table()
 
 
-def check_recording_state(rec):
-    ok = True
+def verify_recording_or_exit(rec):
     if rec.recgroup.lower() == 'deleted':
         job_update(JobStatus.CANCELLED, 'Ignoring recording marked for delete.')
-        ok = False
+        sys.exit(1)
     elif rec.transcoded:
         job_update(JobStatus.CANCELLED, 'Ignoring previously transcoded recording.')
-        ok = False
-    return ok
+        sys.exit(1)
 
 
 def get_rec_file_paths(rec):
@@ -179,7 +175,7 @@ def rm_cutlist(fdst):
             logging.debug(output)
         except MythTV.MythError as e:
             job_update(JobStatus.ERRORED, 'Removing Cutlist failed')
-            raise RuntimeError('mythtranscode failed with error: {}'.format(e))
+            sys.exit('mythtranscode failed with error: {}'.format(e))
         RECORDING.cutlist = 0
         shutil.move(ftmp, fdst)
 
@@ -192,8 +188,7 @@ def transcode(fsrc, fdst):
         handbrake(fsrc, fdst)
     except MythTV.MythError as e:
         job_update(JobStatus.ERRORED, 'Transcoding to mp4 failed!')
-        raise RuntimeError('Handbrake failed with error: {}'.format(e))
-
+        sys.exit('Handbrake failed with error: {}'.format(e))
     RECORDING.transcoded = 1
     RECORDING.filesize = os.path.getsize(fdst)
     RECORDING.basename = os.path.basename(fdst)
@@ -311,7 +306,7 @@ def job_update(status, comment):
 if __name__ == '__main__':
     try:
         main()
-        sys.exit(0)
     except Exception as e:
+        job_update(JobStatus.ERRORED, str(e))
         logging.exception(e)
         sys.exit(1)
