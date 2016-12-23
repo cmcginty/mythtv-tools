@@ -49,8 +49,8 @@ NULL_OUTPUT_OPT = '>/dev/null 2>&1'
 NULL_STDIO_OPT = '1>/dev/null'
 
 # patch MythTV classes to retry after a closed DB connection
-add_db_reconnect_handling( MythTV.Job )
-add_db_reconnect_handling( MythTV.Recorded )
+mythutils.add_db_reconnect_handl)ng( MythTV.Job )
+mythutils.add_db_reconnect_handling( MythTV.Recorded )
 
 
 def main():
