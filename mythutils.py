@@ -79,5 +79,5 @@ def add_db_reconnect_handling(cls):
         return new_fn
     # get all methods in the class and wrap with the decorator above
     for name, fn in inspect.getmembers(cls):
-        if isinstance(fn, types.UnboundMethodType):
+        if not name.startswith('_') and isinstance(fn, types.UnboundMethodType):
             setattr(cls, name, decorator(fn))
