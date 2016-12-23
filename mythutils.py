@@ -6,6 +6,7 @@ import inspect
 import os
 import types
 
+import MySQLdb
 import MythTV
 from MythTV.altdict import DictData
 
