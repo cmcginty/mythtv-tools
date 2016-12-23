@@ -2,7 +2,9 @@
 A set of helper methods necessary to work with the MythTV API.
 """
 
+import inspect
 import os
+import types
 
 import MythTV
 from MythTV.altdict import DictData
@@ -45,13 +47,36 @@ def recording_name(rec):
     return '"{}" @ {} ({})'.format(title, rec.starttime, rec.basename)
 
 
-def recording_file_path(db, rec):
+def recording_file_path(rec):
     """
     Return the full path to the recording on the file system.
 
     :raises RuntimeError: If file does not exists at the expected location.
     """
-    storage = MythTV.findfile('/' + rec.basename, rec.storagegroup, db=db)
+    storage = MythTV.findfile('/' + rec.basename, rec.storagegroup)
     if not storage:
         raise RuntimeError('Local access to recording not found.')
     return os.path.join(storage.dirname, rec.basename)
+
+
+def add_db_reconnect_handling(cls):
+    """
+    Wrap all callables in a class to catch an OperationalError, perform a DB reconnection and a
+    single retry. This happens after long running process's (8+ hours) DB connection times out on
+    the server.
+    """
+    def decorator(fn):
+        """Return a new callable that handles OperationalError exception."""
+        def new_fn(self, *args,**kwargs):
+            try:
+                result = fn(*args,**kwargs)     # first attempt
+            except MySQLdb.OperationalError as ex:
+                # update internal DB reference and re-call the method
+                self._db = MythTV.DBCache()
+                result = fn(self,*args,**kwargs)
+            return result
+        return new_fn
+    # get all methods in the class and wrap with the decorator above
+    for name, fn in inspect.getmembers(cls):
+        if isinstance(fn, types.UnboundMethodType):
+            setattr(cls, name, decorator(fn))

@@ -26,7 +26,7 @@ import mythutils
 from mythutils import JobStatus
 
 # Remove any commercial skip points that were previously detected from the source media.
-FLUSH_COMMSKIP = True
+FLUSH_COMMSKIP = False
 
 # Create a new seek table in MythTV for the newly transcoded video.
 BUILD_SEEKTABLE = True
@@ -38,9 +38,6 @@ RF_QUALITY = 23
 # MythTV Job() instance if JOBID was supplied
 JOB = None
 
-# MythTV DB instance
-DB = None
-
 # MythTV recording instance
 RECORDING = None
 
@@ -51,16 +48,19 @@ TRANSCODE_LOG = '/var/log/mythtv/handbrake.log'
 NULL_OUTPUT_OPT = '>/dev/null 2>&1'
 NULL_STDIO_OPT = '1>/dev/null'
 
+# patch MythTV classes to retry after a closed DB connection
+add_db_reconnect_handling( MythTV.Job )
+add_db_reconnect_handling( MythTV.Recorded )
+
 
 def main():
-    global DB, JOB, RECORDING  # pylint:disable=global-statement
+    global JOB, RECORDING  # pylint:disable=global-statement
     opts = parse_options()
     init_logging(opts.debug)
-    DB = MythTV.MythDB()  # pylint:disable=invalid-name
     JOB = get_mythtv_job(opts.jobid)
     RECORDING = get_mythtv_recording(JOB, opts.chanid, opts.starttime)
     run_transcode_workflow()
-    job_update(JobStatus.FINISHED, 'Transcode Completed')
+    job_update(JobStatus.FINISHED, 'Transcode Completed.')
 
 
 def parse_options():
@@ -112,7 +112,7 @@ def init_logging(debug=False):
 
 
 def get_mythtv_job(jobid=None):
-    return MythTV.Job(jobid, db=DB) if jobid else None
+    return MythTV.Job(jobid) if jobid else None
 
 
 def get_mythtv_recording(job=None, chanid=None, starttime=None):
@@ -121,9 +121,9 @@ def get_mythtv_recording(job=None, chanid=None, starttime=None):
     The MythTV API supports many different formats of STARTTIME.
     """
     if job:
-        return MythTV.Recorded((job.chanid, job.starttime), db=DB)
+        return MythTV.Recorded((job.chanid, job.starttime))
     else:
-        return MythTV.Recorded((chanid, starttime), db=DB)
+        return MythTV.Recorded((chanid, starttime))
 
 
 def run_transcode_workflow():
@@ -133,7 +133,7 @@ def run_transcode_workflow():
     """
     verify_recording_or_exit(RECORDING)
     file_src, file_dst = get_rec_file_paths(RECORDING)
-    rm_cutlist(file_src)
+    remove_commercials(file_src)
     transcode(file_src, file_dst)
     flush_commercial_skips()
     finalize_result(file_src)
@@ -150,23 +150,36 @@ def verify_recording_or_exit(rec):
 
 
 def get_rec_file_paths(rec):
-    fsrc = mythutils.recording_file_path(DB, rec)
+    fsrc = mythutils.recording_file_path(rec)
     fdst = fsrc.rsplit('.', 1)[0] + '.mp4'
     return (fsrc, fdst)
 
 
-def rm_cutlist(fdst):
+def remove_commercials(fdst):
     """
-    Remove cutlist from source recording if enabled, replacing the 'fdst' file.  In the event there
-    is no cutlist on the file, no changes are made.
+    Remove commercials (e.g. cut list) from source recording if enabled, replacing the 'fdst' file.
+    In the event there is no cut list on the file, no changes are made. The recording's cut list is
+    a set of markings that indicate the start/stop points after commercial detection.
+
+    The algorithm works in the following steps:
+        1. mythcommflag tool is used to create cut list marks in the DB. This should be configured
+           in the recording options.
+        2. mythtranscode 'creates' a cut list of the commercials with the '--gencutlist' option.
+        3. mythtranscode losslessly strips the cut points from the recording with '--honorcutlist'
+           option. The new (smaller) recording is written to a '.tmp' file.
     """
+    # .commflagged == 1
+    #
+    # mythutil --chanid --starttime (mythformat) --gencutlist
+    # mythtranscode --chanid --startime (mythformat) --honorcutlist
+    # copy .tmp to .mpg
     if RECORDING.cutlist == 1:
-        job_update(JobStatus.RUNNING, 'Removing Cutlist')
+        job_update(JobStatus.RUNNING, 'Removing cut list.')
         ftmp = tempfile.mkstemp(dir=os.path.dirname(fdst))
-        task = MythTV.System(path='mythtranscode', db=DB)
+        task = MythTV.System(path='mythtranscode')
         task.append('--chanid', RECORDING.chanid)
         task.append('--starttime', RECORDING.starttime.mythformat())
-        task.append('--mpeg2')
+        task.append('--mpeg2')  # enable lossless output
         task.append('--honorcutlist')
         task.append('-o', '"{}"'.format(ftmp))
         logging.debug(task.path)
@@ -174,7 +187,7 @@ def rm_cutlist(fdst):
             output = task.command(NULL_STDIO_OPT)
             logging.debug(output)
         except MythTV.MythError as e:
-            job_update(JobStatus.ERRORED, 'Removing Cutlist failed')
+            job_update(JobStatus.ERRORED, 'Removing cut list failed.')
             sys.exit('mythtranscode failed with error: {}'.format(e))
         RECORDING.cutlist = 0
         shutil.move(ftmp, fdst)
@@ -183,11 +196,11 @@ def rm_cutlist(fdst):
 def transcode(fsrc, fdst):
     """The main transcode workflow steps."""
     job_update(JobStatus.RUNNING,
-               'Transcoding {} to mp4'.format(mythutils.recording_name(RECORDING)))
+               'Transcoding {} to mp4.'.format(mythutils.recording_name(RECORDING)))
     try:
         handbrake(fsrc, fdst)
     except MythTV.MythError as e:
-        job_update(JobStatus.ERRORED, 'Transcoding to mp4 failed!')
+        job_update(JobStatus.ERRORED, 'Transcoding to mp4 failed.')
         sys.exit('Handbrake failed with error: {}'.format(e))
     RECORDING.transcoded = 1
     RECORDING.filesize = os.path.getsize(fdst)
@@ -239,7 +252,7 @@ def handbrake(fsrc, fdst):
         '--format mp4',     # set output container to MP4
         '--output',         # the destination file to write
     ]
-    task = MythTV.System(path=HB_COMMAND, db=DB)
+    task = MythTV.System(path=HB_COMMAND)
     task.append(*OPTS_GENERAL)
     task.append(*OPTS_VIDEO)
     task.append(*OPTS_PICTURE)
@@ -283,7 +296,7 @@ def rebuild_seek_table():
     """
     Generate a new seek table for the encoding. This likely helps MythTV seek the video faster.
     """
-    job_update(JobStatus.RUNNING, 'Rebuilding seektable')
+    job_update(JobStatus.RUNNING, 'Rebuilding seektable.')
     if BUILD_SEEKTABLE:
         task = MythTV.System(path='mythcommflag')
         task.append('--chanid', RECORDING.chanid)
