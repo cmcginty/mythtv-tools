@@ -70,7 +70,7 @@ def add_db_reconnect_handling(cls):
         """Return a new callable that handles OperationalError exception."""
         def new_fn(self, *args,**kwargs):
             try:
-                result = fn(*args,**kwargs)     # first attempt
+                result = fn(self,*args,**kwargs)     # first attempt
             except MySQLdb.OperationalError as ex:
                 # update internal DB reference and re-call the method
                 self._db = MythTV.DBCache()
