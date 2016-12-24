@@ -316,7 +316,7 @@ def job_update(status, comment):
     else:
         logging.info(comment)
     try:
-        job().update({'status': status, 'comment': comment})
+        Job().update({'status': status, 'comment': comment})
     except AttributeError:
         pass  # ignore exception if there is no MythJob
 
