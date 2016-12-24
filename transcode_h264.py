@@ -35,11 +35,11 @@ BUILD_SEEKTABLE = True
 # quality level.
 RF_QUALITY = 23
 
-# MythTV Job() instance if JOBID was supplied
-JOB = None
+# Callable that returns MythTV.Job instance
+Job = None
 
-# MythTV recording instance
-RECORDING = None
+# Callable that returns MythTV.Recorded instance
+Recording = None
 
 # Debug output of handbrake command
 TRANSCODE_LOG = '/var/log/mythtv/handbrake.log'
@@ -48,17 +48,13 @@ TRANSCODE_LOG = '/var/log/mythtv/handbrake.log'
 NULL_OUTPUT_OPT = '>/dev/null 2>&1'
 NULL_STDIO_OPT = '1>/dev/null'
 
-# patch MythTV classes to retry after a closed DB connection
-mythutils.add_db_reconnect_handling( MythTV.Job )
-mythutils.add_db_reconnect_handling( MythTV.Recorded )
-
 
 def main():
-    global JOB, RECORDING  # pylint:disable=global-statement
+    global Job, Recording  # pylint:disable=global-statement
     opts = parse_options()
     init_logging(opts.debug)
-    JOB = get_mythtv_job(opts.jobid)
-    RECORDING = get_mythtv_recording(JOB, opts.chanid, opts.starttime)
+    Job = wrap_mythtv_job(opts.jobid)
+    Recording = wrap_mythtv_recording(Job(), opts.chanid, opts.starttime)
     run_transcode_workflow()
     job_update(JobStatus.FINISHED, 'Transcode Completed.')
 
@@ -111,19 +107,19 @@ def init_logging(debug=False):
         console.setLevel(logging.DEBUG)
 
 
-def get_mythtv_job(jobid=None):
-    return MythTV.Job(jobid) if jobid else None
+def wrap_mythtv_job(jobid=None):
+    return lambda: MythTV.Job(jobid) if jobid else None
 
 
-def get_mythtv_recording(job=None, chanid=None, starttime=None):
+def wrap_mythtv_recording(job=None, chanid=None, starttime=None):
     """
     The recording is specified by either the JOB or combination of CHANID and STARTTIME values.
     The MythTV API supports many different formats of STARTTIME.
     """
     if job:
-        return MythTV.Recorded((job.chanid, job.starttime))
+        return lambda: MythTV.Recorded((job.chanid, job.starttime))
     else:
-        return MythTV.Recorded((chanid, starttime))
+        return lambda: MythTV.Recorded((chanid, starttime))
 
 
 def run_transcode_workflow():
@@ -131,13 +127,16 @@ def run_transcode_workflow():
     Perform a transcode operation on a specified MythTV recording.  When complete, the original
     recording will be replaced with the new transcoded file.
     """
-    verify_recording_or_exit(RECORDING)
-    file_src, file_dst = get_rec_file_paths(RECORDING)
-    remove_commercials(file_src)
-    transcode(file_src, file_dst)
-    flush_commercial_skips()
-    finalize_result(file_src)
-    rebuild_seek_table()
+    rec = Recording()
+    verify_recording_or_exit(rec)
+    file_src, file_dst = get_rec_file_paths(rec)
+    remove_commercials(rec, file_src)
+
+    rec = transcode(rec, file_src, file_dst)
+
+    flush_commercial_skips(rec)
+    rebuild_seek_table(rec)
+    clean_up(file_src)
 
 
 def verify_recording_or_exit(rec):
@@ -155,7 +154,7 @@ def get_rec_file_paths(rec):
     return (fsrc, fdst)
 
 
-def remove_commercials(fdst):
+def remove_commercials(rec, fdst):
     """
     Remove commercials (e.g. cut list) from source recording if enabled, replacing the 'fdst' file.
     In the event there is no cut list on the file, no changes are made. The recording's cut list is
@@ -173,12 +172,12 @@ def remove_commercials(fdst):
     # mythutil --chanid --starttime (mythformat) --gencutlist
     # mythtranscode --chanid --startime (mythformat) --honorcutlist
     # copy .tmp to .mpg
-    if RECORDING.cutlist == 1:
+    if rec.cutlist == 1:
         job_update(JobStatus.RUNNING, 'Removing cut list.')
         ftmp = tempfile.mkstemp(dir=os.path.dirname(fdst))
         task = MythTV.System(path='mythtranscode')
-        task.append('--chanid', RECORDING.chanid)
-        task.append('--starttime', RECORDING.starttime.mythformat())
+        task.append('--chanid', rec.chanid)
+        task.append('--starttime', rec.starttime.mythformat())
         task.append('--mpeg2')  # enable lossless output
         task.append('--honorcutlist')
         task.append('-o', '"{}"'.format(ftmp))
@@ -189,22 +188,28 @@ def remove_commercials(fdst):
         except MythTV.MythError as e:
             job_update(JobStatus.ERRORED, 'Removing cut list failed.')
             sys.exit('mythtranscode failed with error: {}'.format(e))
-        RECORDING.cutlist = 0
+        rec.cutlist = 0
+        rec.update()
         shutil.move(ftmp, fdst)
 
 
-def transcode(fsrc, fdst):
+def transcode(rec, fsrc, fdst):
     """The main transcode workflow steps."""
     job_update(JobStatus.RUNNING,
-               'Transcoding {} to mp4.'.format(mythutils.recording_name(RECORDING)))
+               'Transcoding {} to mp4.'.format(mythutils.recording_name(rec)))
     try:
         handbrake(fsrc, fdst)
     except MythTV.MythError as e:
         job_update(JobStatus.ERRORED, 'Transcoding to mp4 failed.')
         sys.exit('Handbrake failed with error: {}'.format(e))
-    RECORDING.transcoded = 1
-    RECORDING.filesize = os.path.getsize(fdst)
-    RECORDING.basename = os.path.basename(fdst)
+    # must acquire a new recording handle in case the other has timed out
+    rec = Recording()
+    rec.transcoded = 1
+    rec.filesize = os.path.getsize(fdst)
+    rec.basename = os.path.basename(fdst)
+    rec.seek.clean()
+    rec.update()
+    return rec
 
 
 def handbrake(fsrc, fdst):
@@ -268,39 +273,36 @@ def handbrake(fsrc, fdst):
     task.command(NULL_STDIO_OPT)
 
 
-def flush_commercial_skips():
+def flush_commercial_skips(rec):
     """
     Remove commercial skip markings the DB. This is useful if the transcoding step is going to
     physically remove the commercials from the video stream.
     """
     if FLUSH_COMMSKIP:
-        for index, mark in reversed(list(enumerate(RECORDING.markup))):
-            if mark.type in (RECORDING.markup.MARK_COMM_START, RECORDING.markup.MARK_COMM_END):
-                del RECORDING.markup[index]
-        RECORDING.bookmark = 0
-        RECORDING.markup.commit()
+        for index, mark in reversed(list(enumerate(rec.markup))):
+            if mark.type in (rec.markup.MARK_COMM_START, rec.markup.MARK_COMM_END):
+                del rec.markup[index]
+        rec.bookmark = 0
+        rec.markup.commit()
 
 
-def finalize_result(fsrc):
-    """Update the recording DB entry and remove original."""
-    # delete the old *.png files
+def clean_up(fsrc):
+    """Remove original recording and related files."""
     assert fsrc
     for filename in glob('%s*.png' % fsrc):
         os.remove(filename)
-    RECORDING.seek.clean()
-    RECORDING.update()  # save recording metadata to DB
-    os.remove(fsrc)  # safe to remove original recording
+    os.remove(fsrc)
 
 
-def rebuild_seek_table():
+def rebuild_seek_table(rec):
     """
     Generate a new seek table for the encoding. This likely helps MythTV seek the video faster.
     """
     job_update(JobStatus.RUNNING, 'Rebuilding seektable.')
     if BUILD_SEEKTABLE:
         task = MythTV.System(path='mythcommflag')
-        task.append('--chanid', RECORDING.chanid)
-        task.append('--starttime', RECORDING.starttime.mythformat())
+        task.append('--chanid', rec.chanid)
+        task.append('--starttime', rec.starttime.mythformat())
         task.append('--rebuild')
         logging.debug(task.path)
         output = task.command(NULL_STDIO_OPT)
@@ -308,12 +310,13 @@ def rebuild_seek_table():
 
 
 def job_update(status, comment):
-    """Update the JOB status, if JOBID is provided as script parameter."""
+    """Update the Job status, if JOBID is provided as script parameter."""
     if status in JobStatus.ANY_ERROR:
         logging.error(comment)
     else:
         logging.info(comment)
-    if JOB: JOB.update({'status': status, 'comment': comment})
+    if Job:
+        Job().update({'status': status, 'comment': comment})
 
 
 if __name__ == '__main__':
