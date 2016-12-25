@@ -197,6 +197,7 @@ def transcode(rec, fsrc, fdst):
     """The main transcode workflow steps."""
     job_update(JobStatus.RUNNING,
                'Transcoding {} to mp4.'.format(mythutils.recording_name(rec)))
+    del rec  # close connection to DB recording
     try:
         handbrake(fsrc, fdst)
     except MythTV.MythError as e:
@@ -316,7 +317,9 @@ def job_update(status, comment):
     else:
         logging.info(comment)
     try:
-        Job().update({'status': status, 'comment': comment})
+        j = Job()
+        j.update({'status': status, 'comment': comment})
+        del j
     except AttributeError:
         pass  # ignore exception if there is no MythJob
 
