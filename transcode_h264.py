@@ -108,7 +108,7 @@ def init_logging(debug=False):
 
 
 def wrap_mythtv_job(jobid=None):
-    return lambda: MythTV.Job(jobid) if jobid else None
+    return lambda: MythTV.Job(jobid, db=MythTV.MythDB()) if jobid else None
 
 
 def wrap_mythtv_recording(job=None, chanid=None, starttime=None):
@@ -117,9 +117,9 @@ def wrap_mythtv_recording(job=None, chanid=None, starttime=None):
     The MythTV API supports many different formats of STARTTIME.
     """
     if job:
-        return lambda: MythTV.Recorded((job.chanid, job.starttime))
+        return lambda: MythTV.Recorded((job.chanid, job.starttime), db=MythTV.MythDB())
     else:
-        return lambda: MythTV.Recorded((chanid, starttime))
+        return lambda: MythTV.Recorded((chanid, starttime), db=MythTV.MythDB())
 
 
 def run_transcode_workflow():
