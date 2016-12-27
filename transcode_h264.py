@@ -111,7 +111,7 @@ def wrap_mythtv_job(jobid=None):
     def _fn():
         MythTV.MythDB().shared.data.clear()  # clear the SQL connection
         return MythTV.Job(jobid)
-    return _fn if jobid else None
+    return _fn if jobid else lambda: None
 
 
 def wrap_mythtv_recording(job=None, chanid=None, starttime=None):
