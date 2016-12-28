@@ -207,6 +207,7 @@ def transcode(rec, fsrc, fdst):
     except MythTV.MythError as e:
         job_update(JobStatus.ERRORED, 'Transcoding to mp4 failed.')
         sys.exit('Handbrake failed with error: {}'.format(e))
+    job_update(JobStatus.RUNNING, 'Handbrake finished encoding.')
     # reconnect recording DB instance in case the other has timed out
     rec = Recording()
     rec.transcoded = 1
