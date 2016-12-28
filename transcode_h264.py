@@ -119,10 +119,10 @@ def wrap_mythtv_recording(job=None, chanid=None, starttime=None):
     The recording is specified by either the JOB or combination of CHANID and STARTTIME values.
     The MythTV API supports many different formats of STARTTIME.
     """
-    def _wrap(chanid,startime):
+    def _wrap(_chanid,_starttime):
         def _fn():
-            MythTV.MythDB().shared.data.clear()  # clear the SQL connection
-            return MythTV.Recorded((chanid, starttime))
+            MythTV.MythDB().shared.data.clear()  # clear any closed SQL connections
+            return MythTV.Recorded((_chanid, _starttime))
         return _fn
     return _wrap(job.chanid, job.starttime) if job else _wrap(chanid, starttime)
 
@@ -141,7 +141,7 @@ def run_transcode_workflow():
 
     flush_commercial_skips(rec)
     rebuild_seek_table(rec)
-    clean_up(file_src)
+    delete_recording(file_src)
 
 
 def verify_recording_or_exit(rec):
@@ -202,13 +202,12 @@ def transcode(rec, fsrc, fdst):
     """The main transcode workflow steps."""
     job_update(JobStatus.RUNNING,
                'Transcoding {} to mp4.'.format(mythutils.recording_name(rec)))
-    del rec  # close connection to DB recording
     try:
         handbrake(fsrc, fdst)
     except MythTV.MythError as e:
         job_update(JobStatus.ERRORED, 'Transcoding to mp4 failed.')
         sys.exit('Handbrake failed with error: {}'.format(e))
-    # must acquire a new recording handle in case the other has timed out
+    # reconnect recording DB instance in case the other has timed out
     rec = Recording()
     rec.transcoded = 1
     rec.filesize = os.path.getsize(fdst)
@@ -292,8 +291,8 @@ def flush_commercial_skips(rec):
         rec.markup.commit()
 
 
-def clean_up(fsrc):
-    """Remove original recording and related files."""
+def delete_recording(fsrc):
+    """Remove recording and related files from storage."""
     assert fsrc
     for filename in glob('%s*.png' % fsrc):
         os.remove(filename)
@@ -322,9 +321,7 @@ def job_update(status, comment):
     else:
         logging.info(comment)
     try:
-        j = Job()
-        j.update({'status': status, 'comment': comment})
-        del j
+        Job().update({'status': status, 'comment': comment})
     except AttributeError:
         pass  # ignore exception if there is no MythJob
 
