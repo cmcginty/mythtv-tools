@@ -260,6 +260,7 @@ def handbrake(fsrc, fdst):
     ]
     OPTS_INPUT = ['--input']  # command to set the source media
     OPTS_OUTPUT = [
+        '--optimize',       # improve streaming start speed
         '--format mp4',     # set output container to MP4
         '--output',         # the destination file to write
     ]
