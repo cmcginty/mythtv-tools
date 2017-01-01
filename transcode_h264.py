@@ -4,7 +4,6 @@
 MythTV transcoding script that supports h.264 encoding output.
 
 Designed to be a USERJOB of the form </path to script/transcode_h264.py %JOBID%>
-Credits: 2015 Michael Stucky, based on Raymond Wagner's transcode wrapper stub.
 """
 
 from __future__ import absolute_import
@@ -200,12 +199,11 @@ def remove_commercials(rec, fdst):
 
 def transcode(rec, fsrc, fdst):
     """The main transcode workflow steps."""
-    job_update(JobStatus.RUNNING,
-               'Transcoding {} to mp4.'.format(mythutils.recording_name(rec)))
+    job_update(JobStatus.RUNNING, 'Transcoding {}.'.format(mythutils.recording_name(rec)))
     try:
         handbrake(fsrc, fdst)
     except MythTV.MythError as e:
-        job_update(JobStatus.ERRORED, 'Transcoding to mp4 failed.')
+        job_update(JobStatus.ERRORED, 'Transcoding failed.')
         sys.exit('Handbrake failed with error: {}'.format(e))
     job_update(JobStatus.RUNNING, 'Handbrake finished encoding.')
     # reconnect recording DB instance in case the other has timed out
