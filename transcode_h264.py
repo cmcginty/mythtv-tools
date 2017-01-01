@@ -56,7 +56,6 @@ def main():
     Job = wrap_mythtv_job(opts.jobid)
     Recording = wrap_mythtv_recording(Job(), opts.chanid, opts.starttime)
     run_transcode_workflow()
-    job_update(JobStatus.FINISHED, 'Transcode Completed.')
 
 
 def parse_options():
@@ -142,7 +141,7 @@ def run_transcode_workflow():
     create_thumbnails(file_dst)
     flush_commercial_skips(rec)
     rebuild_seek_table(rec)
-    delete_recording(file_src)
+    job_update(JobStatus.FINISHED, 'Finished {}.'.format(mythutils.recording_name(rec)))
 
 
 def verify_recording_or_exit(rec):
@@ -216,6 +215,7 @@ def transcode(rec, fsrc, fdst):
     rec.basename = os.path.basename(fdst)
     rec.seek.clean()
     rec.update()
+    delete_recording(fsrc)
     return rec
 
 
@@ -351,7 +351,7 @@ def job_update(status, comment):
 if __name__ == '__main__':
     try:
         main()
-    except Exception as e:
+    except Exception as e:  # pylint:disable=broad-except
         job_update(JobStatus.ERRORED, str(e))
         logging.exception(e)
         sys.exit(1)
