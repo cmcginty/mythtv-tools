@@ -79,12 +79,12 @@ def parse_options():
     opts = parser.parse_args()
     if not (opts.jobid or (opts.chanid and opts.starttime)):
         opts.print_help()
-        log.error('Missing JOBID argument, or --chanid and --starttime.')
+        logging.error('Missing JOBID argument, or --chanid and --starttime.')
         sys.exit(1)
 
     if opts.jobid and (opts.chanid or opts.starttime):
         opts.print_help()
-        log.error('JOBID can not be combined with other options.')
+        logging.error('JOBID can not be combined with other options.')
         sys.exit(1)
 
     if opts.verbose:
@@ -119,7 +119,7 @@ def wrap_mythtv_recording(job=None, chanid=None, starttime=None):
     The recording is specified by either the JOB or combination of CHANID and STARTTIME values.
     The MythTV API supports many different formats of STARTTIME.
     """
-    def _wrap(_chanid,_starttime):
+    def _wrap(_chanid, _starttime):
         def _fn():
             MythTV.MythDB().shared.data.clear()  # clear any closed SQL connections
             return MythTV.Recorded((_chanid, _starttime))
@@ -286,18 +286,18 @@ def create_thumbnails(fsrc):
     Manually generate video thumbnails using 3rd-party application since mythpreviewgen usually
     scrambles image output of mp4 recordings.
     """
-    THUMBNAIL_COMMAND='ffmpegthumbnailer'
-    EXTENSION='png'
+    THUMBNAIL_COMMAND = 'ffmpegthumbnailer'
+    EXTENSION = 'png'
     task = MythTV.System(path=THUMBNAIL_COMMAND)
-    task.append('-q9')      # quality level 0-10
-    task.append('-t10')     # seek percentage or time (hh:mm:ss)
+    task.append('-q9')  # quality level 0-10
+    task.append('-t10')  # seek percentage or time (hh:mm:ss)
     task.append('-i{}'.format(fsrc))  # source mp4 recording
     logging.debug(task.path)
-    task.command('-s320','-o{}.{}'.format(fdst,EXTENSION),NULL_OUTPUT_OPT)
+    task.command('-s320', '-o{}.{}'.format(fsrc, EXTENSION), NULL_OUTPUT_OPT)
     # mythweb large
-    task.command('-s320','-o{}.-1.320x180.{}'.format(fdst,EXTENSION), NULL_OUTPUT_OPT)
+    task.command('-s320', '-o{}.-1.320x180.{}'.format(fsrc, EXTENSION), NULL_OUTPUT_OPT)
     # mythweb small
-    task.command('-s100','-o{}.-1.100x56.{}'.format(fdst,EXTENSION), NULL_OUTPUT_OPT)
+    task.command('-s100', '-o{}.-1.100x56.{}'.format(fsrc, EXTENSION), NULL_OUTPUT_OPT)
 
 
 def flush_commercial_skips(rec):
