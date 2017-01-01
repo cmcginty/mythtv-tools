@@ -139,6 +139,7 @@ def run_transcode_workflow():
 
     rec = transcode(rec, file_src, file_dst)
 
+    create_thumbnails(file_dst)
     flush_commercial_skips(rec)
     rebuild_seek_table(rec)
     delete_recording(file_src)
@@ -278,6 +279,25 @@ def handbrake(fsrc, fdst):
     task.append('2>>' + TRANSCODE_LOG)
     logging.debug(task.path)
     task.command(NULL_STDIO_OPT)
+
+
+def create_thumbnails(fsrc):
+    """
+    Manually generate video thumbnails using 3rd-party application since mythpreviewgen usually
+    scrambles image output of mp4 recordings.
+    """
+    THUMBNAIL_COMMAND='ffmpegthumbnailer'
+    EXTENSION='png'
+    task = MythTV.System(path=THUMBNAIL_COMMAND)
+    task.append('-q9')      # quality level 0-10
+    task.append('-t10')     # seek percentage or time (hh:mm:ss)
+    task.append('-i{}'.format(fsrc))  # source mp4 recording
+    logging.debug(task.path)
+    task.command('-s320','-o{}.{}'.format(fdst,EXTENSION),NULL_OUTPUT_OPT)
+    # mythweb large
+    task.command('-s320','-o{}.-1.320x180.{}'.format(fdst,EXTENSION), NULL_OUTPUT_OPT)
+    # mythweb small
+    task.command('-s100','-o{}.-1.100x56.{}'.format(fdst,EXTENSION), NULL_OUTPUT_OPT)
 
 
 def flush_commercial_skips(rec):
