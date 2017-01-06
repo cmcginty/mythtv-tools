@@ -28,7 +28,7 @@ from mythutils import JobStatus
 FLUSH_COMMSKIP = False
 
 # Create a new seek table in MythTV for the newly transcoded video.
-BUILD_SEEKTABLE = True
+BUILD_SEEKTABLE = False
 
 # Set the actual encoder "RF" quality (e.g. 10 to 30). This has the biggest impact on file size and
 # quality level.
@@ -127,7 +127,7 @@ def wrap_mythtv_recording(job=None, chanid=None, starttime=None):
 
 def run_transcode_workflow():
     """
-    Perform a transcode operation on a specified MythTV recording.  When complete, the original
+    Perform a transcode operation on a specified MythTV recording. When complete, the original
     recording will be replaced with the new transcoded file.
     """
     rec = Recording()
@@ -211,7 +211,9 @@ def transcode(rec, fsrc, fdst):
     rec.transcoded = 1
     rec.filesize = os.path.getsize(fdst)
     rec.basename = os.path.basename(fdst)
+    job_update(JobStatus.RUNNING, 'Removing seek points.')
     rec.seek.clean()
+    job_update(JobStatus.RUNNING, 'Saving change to DB.')
     rec.update()
     delete_recording(fsrc)
     return rec
@@ -284,6 +286,7 @@ def create_thumbnails(fsrc):
     Manually generate video thumbnails using 3rd-party application since mythpreviewgen usually
     scrambles image output of mp4 recordings.
     """
+    job_update(JobStatus.RUNNING, 'Generating recording thumbnails.')
     THUMBNAIL_COMMAND = 'ffmpegthumbnailer'
     EXTENSION = 'png'
     task = MythTV.System(path=THUMBNAIL_COMMAND)
@@ -304,6 +307,7 @@ def flush_commercial_skips(rec):
     physically remove the commercials from the video stream.
     """
     if FLUSH_COMMSKIP:
+        job_update(JobStatus.RUNNING, 'Flushing commercial skip data.')
         for index, mark in reversed(list(enumerate(rec.markup))):
             if mark.type in (rec.markup.MARK_COMM_START, rec.markup.MARK_COMM_END):
                 del rec.markup[index]
@@ -323,8 +327,8 @@ def rebuild_seek_table(rec):
     """
     Generate a new seek table for the encoding. This likely helps MythTV seek the video faster.
     """
-    job_update(JobStatus.RUNNING, 'Rebuilding seektable.')
     if BUILD_SEEKTABLE:
+        job_update(JobStatus.RUNNING, 'Rebuilding seektable.')
         task = MythTV.System(path='mythcommflag')
         task.append('--chanid', rec.chanid)
         task.append('--starttime', rec.starttime.mythformat())
