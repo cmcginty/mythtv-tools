@@ -13,11 +13,13 @@ from __future__ import unicode_literals
 
 from glob import glob
 import argparse
+import datetime
 import logging
 import os
 import shutil
 import sys
 import tempfile
+import time
 
 import MythTV
 
@@ -33,6 +35,9 @@ BUILD_SEEKTABLE = False
 # Set the actual encoder "RF" quality (e.g. 10 to 30). This has the biggest impact on file size and
 # quality level.
 RF_QUALITY = 23
+
+# encoding speeds [ultrafast, superfast, veryfast, faster, fast, medium, slow, slower]
+PRESET_SPEED = 'veryfast'
 
 # Callable that returns MythTV.Job instance
 Job = None  # pylint:disable=invalid-name
@@ -134,6 +139,7 @@ def run_transcode_workflow():
     Perform a transcode operation on a specified MythTV recording. When complete, the original
     recording will be replaced with the new transcoded file.
     """
+    start_time = time.time()
     rec = Recording()
     verify_recording_or_exit(rec)
     file_src, file_dst = get_rec_file_paths(rec)
@@ -144,7 +150,10 @@ def run_transcode_workflow():
     create_thumbnails(file_dst)
     flush_commercial_skips(rec)
     rebuild_seek_table(rec)
-    job_update(JobStatus.FINISHED, 'Finished {}.'.format(mythutils.recording_name(rec)))
+    elapsed = int(time.time() - start_time)
+    job_update(JobStatus.FINISHED,
+               'Finished {} in {}.'.format(mythutils.recording_name(rec),
+                                           datetime.timedelta(seconds=elapsed)))
 
 
 def verify_recording_or_exit(rec):
@@ -233,8 +242,7 @@ def handbrake(fsrc, fdst):
     OPTS_VIDEO = [
         '--encoder x264',                   # h.264 encoding
         '--quality ' + str(RF_QUALITY),     # mid-quality, lower is better (18-30 is normal)
-        '--x264-preset faster',             # encoding speeds [ultrafast, superfast, veryfast,
-                                            #                  faster, fast, medium, slow, slower]
+        '--x264-preset ' + str(PRESET_SPEED),  # encoding speeds
         '--x264-tune film',                 # image tuning (none, film, animation, ...)
         '--x264-profile high',              # encoder profile, most devices support 'high' or better
         '--h264-level 4.1',                 # profile level, most support 4.1 or better
